@@ -1,3 +1,4 @@
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
@@ -6,98 +7,159 @@ from database import engine, SessionLocal, Base
 from models import Simulacao
 from services import calcular_valor, definir_banco, calcular_score
 
-# cria as tabelas no banco
+# cria tabelas no banco
 Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
+# CORS
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
+# =========================
+# MODELOS
+# =========================
 class Cliente(BaseModel):
     nome: str
     cpf: str
     produto: str
 
 
+class CapturaRequest(BaseModel):
+    nome: str
+    cpf: str
+    telefone: str | None = None
+    email: str | None = None
+    produto: str = "FGTS"
+    origem: str | None = None
+    score: int | None = None
+    data: str | None = None
+
+
+# =========================
+# ROTA INICIAL
+# =========================
 @app.get("/")
 def home():
     return {"mensagem": "API Recomece Cred funcionando 🚀"}
 
 
+# =========================
+# SIMULAÇÃO
+# =========================
 @app.post("/simular")
 def simular(cliente: Cliente):
+
     db: Session = SessionLocal()
 
-    # 1️⃣ define banco
-    banco_escolhido = definir_banco(cliente.produto)
+    try:
+        bancos = definir_banco(cliente.produto)
 
-    # 2️⃣ calcula valor baseado no banco
-    valor_simulado = calcular_valor(cliente.cpf, banco_escolhido)
+        resultado = []
 
-    # 3️⃣ calcula score
-    score = calcular_score(cliente.cpf)
+        for banco in bancos:
+            valor = calcular_valor(cliente.cpf, banco)
 
-    # 4️⃣ define status inteligente
-    if score == "BAIXO":
-        status = "EM ANÁLISE"
-    elif score == "MÉDIO":
-        status = "PRÉ-APROVADO"
-    else:
-        status = "APROVADO"
+            resultado.append({
+                "banco": banco,
+                "valor": valor
+            })
 
-    # 5️⃣ salva no banco
-    nova_simulacao = Simulacao(
-        nome=cliente.nome,
-        cpf=cliente.cpf,
-        produto=cliente.produto,
-        banco=banco_escolhido,
-        valor_aprovado=valor_simulado,
-        score=score
-    )
+        banco_escolhido = resultado[0]["banco"]
+        valor_simulado = resultado[0]["valor"]
 
-    db.add(nova_simulacao)
-    db.commit()
-    db.refresh(nova_simulacao)
-    db.close()
+        score = calcular_score(cliente.cpf)
 
-    return {
-        "nome": cliente.nome,
-        "cpf": cliente.cpf,
-        "produto": cliente.produto,
-        "banco": banco_escolhido,
-        "valor_aprovado": valor_simulado,
-        "score": score,
-        "status": status
-    }
+        if score == "BAIXO":
+            status = "EM ANÁLISE"
+        elif score == "MÉDIO":
+            status = "PRÉ-APROVADO"
+        else:
+            status = "APROVADO"
+
+        nova_simulacao = Simulacao(
+            nome=cliente.nome,
+            cpf=cliente.cpf,
+            produto=cliente.produto,
+            banco=banco_escolhido,
+            valor_aprovado=valor_simulado,
+            score=score
+        )
+
+        db.add(nova_simulacao)
+        db.commit()
+        db.refresh(nova_simulacao)
+
+        return {
+            "nome": cliente.nome,
+            "cpf": cliente.cpf,
+            "produto": cliente.produto,
+            "score": score,
+            "status": status,
+            "simulacoes": resultado
+        }
+
+    finally:
+        db.close()
 
 
+# =========================
+# LISTAR LEADS (CRM) ✅ AJUSTADO
+# =========================
 @app.get("/simulacoes")
 def listar_simulacoes():
     db: Session = SessionLocal()
-    simulacoes = db.query(Simulacao).all()
-    db.close()
-    return simulacoes
+    try:
+        dados = db.query(Simulacao).all()
+
+        return [
+            {
+                "id": d.id,
+                "nome": d.nome,
+                "cpf": d.cpf,
+                "produto": d.produto,
+                "banco": d.banco,
+                "valor_aprovado": d.valor_aprovado,
+                "score": d.score
+            }
+            for d in dados
+        ]
+
+    finally:
+        db.close()
 
 
-@app.get("/simulacoes/{cpf}")
-def buscar_por_cpf(cpf: str):
-    db: Session = SessionLocal()
-    simulacoes = db.query(Simulacao).filter(Simulacao.cpf == cpf).all()
-    db.close()
-    return simulacoes
-@app.get("/dashboard")
-def dashboard():
-    db: Session = SessionLocal()
+# =========================
+# CAPTURA
+# =========================
+@app.post("/captura")
+def captura(dados: CapturaRequest):
 
-    total = db.query(Simulacao).count()
-    baixo = db.query(Simulacao).filter(Simulacao.score == "BAIXO").count()
-    medio = db.query(Simulacao).filter(Simulacao.score == "MÉDIO").count()
-    alto = db.query(Simulacao).filter(Simulacao.score == "ALTO").count()
+    print("🔥 DADOS RECEBIDOS DO SITE:", dados)
 
-    db.close()
+    cliente = Cliente(
+        nome=dados.nome,
+        cpf=dados.cpf,
+        produto=dados.produto
+    )
+
+    resultado = simular(cliente)
+
+    print("✅ RESULTADO PROCESSADO:", resultado)
 
     return {
-        "total_simulacoes": total,
-        "score_baixo": baixo,
-        "score_medio": medio,
-        "score_alto": alto
+        "ok": True,
+        "mensagem": "Lead capturado com sucesso",
+        "cliente": {
+            "nome": dados.nome,
+            "cpf": dados.cpf,
+            "telefone": dados.telefone,
+            "email": dados.email
+        },
+        "resultado": resultado
     }

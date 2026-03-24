@@ -1,17 +1,21 @@
 def definir_banco(produto: str):
+
     produto = produto.upper()
 
     if produto == "FGTS":
-        return "BANCO V8"
+        return ["BANCO V8", "BANCO FACTA"]
 
     elif produto == "INSS":
-        return "BANCO FACTA"
+        return ["BANCO FACTA", "ICRED", "360CONSIG"]
 
-    elif produto == "ICRED":
-        return "ICRED"
+    elif produto == "CLT":
+        return ["C6 BANK", "BANCO FACTA", "BANCO V8"]
+
+    elif produto == "ENERGIA":
+        return ["CREFAZ"]
 
     else:
-        return "BANCO FACTA"
+        return ["BANCO FACTA"]
 
 
 def calcular_valor(cpf: str, banco: str):
@@ -22,23 +26,30 @@ def calcular_valor(cpf: str, banco: str):
     elif banco == "BANCO FACTA":
         return 8000
 
-    elif banco == "BANCO ITAU":
-        return 20000
+    elif banco == "C6 BANK":
+        return 15000
 
     elif banco == "ICRED":
         return 5000
 
-    else:
+    elif banco == "360CONSIG":
+        return 7000
+
+    elif banco == "CREFAZ":
         return 3000
+
+    else:
+        return 2000
 
 
 def calcular_score(cpf: str):
-    ultimo_digito = int(cpf[-1])
 
-    if ultimo_digito <= 3:
+    ultimo = int(cpf[-1])
+
+    if ultimo <= 3:
         return "BAIXO"
 
-    elif ultimo_digito <= 6:
+    elif ultimo <= 6:
         return "MÉDIO"
 
     else:
