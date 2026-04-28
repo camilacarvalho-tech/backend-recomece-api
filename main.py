@@ -10,10 +10,8 @@ from models import Simulacao
 from services import calcular_valor, definir_banco, calcular_score
 
 # =========================
-# CRIAR TABELAS (opcional)
+# APP
 # =========================
-# Base.metadata.create_all(bind=engine)
-
 app = FastAPI()
 
 # =========================
@@ -54,14 +52,12 @@ class CapturaRequest(BaseModel):
     produto: str = "FGTS"
     origem: str | None = "site"
 
-
 # =========================
-# TESTE API
+# TESTE
 # =========================
 @app.get("/")
 def home():
     return {"mensagem": "API Recomece Cred funcionando 🚀"}
-
 
 # =========================
 # FUNÇÃO INTERNA
@@ -109,9 +105,8 @@ def processar_simulacao(cliente: Cliente, db: Session):
 
     return resultado, score, status
 
-
 # =========================
-# CONSULTA (SITE)
+# CONSULTA
 # =========================
 @app.post("/consulta")
 def consulta(dados: dict):
@@ -139,7 +134,6 @@ def consulta(dados: dict):
     finally:
         db.close()
 
-
 # =========================
 # CAPTURA + ENVIO CRM 🔥
 # =========================
@@ -158,8 +152,7 @@ def captura(dados: CapturaRequest):
 
         maior = max(resultado, key=lambda x: x["valor"])
 
-        crm_response = None
-
+        # ENVIO PARA CRM
         if CRM_URL:
             headers = {
                 "Content-Type": "application/json"
@@ -181,15 +174,12 @@ def captura(dados: CapturaRequest):
             }
 
             try:
-                r = requests.post(CRM_URL, json=payload, headers=headers, timeout=10)
-                crm_response = r.json()
+                requests.post(CRM_URL, json=payload, headers=headers)
             except Exception as crm_error:
                 print("❌ ERRO CRM:", crm_error)
 
         return {
             "ok": True,
-            "mensagem": "Lead capturado com sucesso",
-            "crm": crm_response,
             "resultado": {
                 "valor": maior["valor"],
                 "banco": maior["banco"],
@@ -204,9 +194,8 @@ def captura(dados: CapturaRequest):
     finally:
         db.close()
 
-
 # =========================
-# 🔥 NOVO ENDPOINT - LISTAR LEADS
+# 🔥 LISTAR LEADS
 # =========================
 @app.get("/leads")
 def listar_leads():
