@@ -11,7 +11,7 @@ from services import calcular_valor, definir_banco, calcular_score
 # =========================
 # CRIAR TABELAS
 # =========================
-Base.metadata.create_all(bind=engine)
+#Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
