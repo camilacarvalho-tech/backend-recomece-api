@@ -3,15 +3,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import requests
+import os
 
 from database import engine, SessionLocal, Base
 from models import Simulacao
 from services import calcular_valor, definir_banco, calcular_score
 
 # =========================
-# CRIAR TABELAS
+# CRIAR TABELAS (opcional)
 # =========================
-#Base.metadata.create_all(bind=engine)
+# Base.metadata.create_all(bind=engine)
 
 app = FastAPI()
 
@@ -22,12 +23,19 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=[
         "https://recomececredoficial.com.br",
-        "https://www.recomececredoficial.com.br"
+        "https://www.recomececredoficial.com.br",
+        "http://localhost:5500"
     ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+# =========================
+# CONFIG CRM (ENV)
+# =========================
+CRM_URL = os.getenv("CRM_URL")
+CRM_TOKEN = os.getenv("CRM_TOKEN")
 
 # =========================
 # MODELOS
@@ -44,7 +52,7 @@ class CapturaRequest(BaseModel):
     telefone: str | None = None
     email: str | None = None
     produto: str = "FGTS"
-    origem: str | None = None
+    origem: str | None = "site"
 
 
 # =========================
@@ -103,7 +111,7 @@ def processar_simulacao(cliente: Cliente, db: Session):
 
 
 # =========================
-# 🔥 NOVO ENDPOINT (IMPORTANTE)
+# CONSULTA (SITE)
 # =========================
 @app.post("/consulta")
 def consulta(dados: dict):
@@ -112,13 +120,10 @@ def consulta(dados: dict):
     try:
         cpf = dados.get("cpf")
 
-        cliente = Cliente(
-            cpf=cpf
-        )
+        cliente = Cliente(cpf=cpf)
 
         resultado, score, status = processar_simulacao(cliente, db)
 
-        # pega o maior valor
         maior = max(resultado, key=lambda x: x["valor"])
 
         return {
@@ -136,11 +141,10 @@ def consulta(dados: dict):
 
 
 # =========================
-# CAPTURA DO SITE
+# CAPTURA + ENVIO CRM 🔥
 # =========================
 @app.post("/captura")
 def captura(dados: CapturaRequest):
-
     db: Session = SessionLocal()
 
     try:
@@ -152,35 +156,76 @@ def captura(dados: CapturaRequest):
 
         resultado, score, status = processar_simulacao(cliente, db)
 
-        # 🔥 ENVIA PARA CRM (trocar depois)
-        try:
-            requests.post("URL_DO_SEU_CRM", json={
-                "nome": cliente.nome,
-                "cpf": cliente.cpf,
-                "produto": cliente.produto,
-                "score": score,
-                "status": status
-            })
-        except:
-            pass
+        maior = max(resultado, key=lambda x: x["valor"])
+
+        crm_response = None
+
+        if CRM_URL:
+            headers = {
+                "Content-Type": "application/json"
+            }
+
+            if CRM_TOKEN:
+                headers["Authorization"] = f"Bearer {CRM_TOKEN}"
+
+            payload = {
+                "nome": dados.nome,
+                "cpf": dados.cpf,
+                "telefone": dados.telefone,
+                "email": dados.email,
+                "produto": dados.produto,
+                "banco": maior["banco"],
+                "valor": maior["valor"],
+                "status": status,
+                "origem": dados.origem
+            }
+
+            try:
+                r = requests.post(CRM_URL, json=payload, headers=headers, timeout=10)
+                crm_response = r.json()
+            except Exception as crm_error:
+                print("❌ ERRO CRM:", crm_error)
 
         return {
             "ok": True,
             "mensagem": "Lead capturado com sucesso",
-            "cliente": {
-                "nome": dados.nome,
-                "cpf": dados.cpf,
-                "telefone": dados.telefone,
-                "email": dados.email
-            },
-            "score": score,
-            "status": status,
-            "simulacoes": resultado
+            "crm": crm_response,
+            "resultado": {
+                "valor": maior["valor"],
+                "banco": maior["banco"],
+                "status": status
+            }
         }
 
     except Exception as e:
         print("❌ ERRO NA CAPTURA:", e)
         return {"erro": str(e)}
+
+    finally:
+        db.close()
+
+
+# =========================
+# 🔥 NOVO ENDPOINT - LISTAR LEADS
+# =========================
+@app.get("/leads")
+def listar_leads():
+    db: Session = SessionLocal()
+
+    try:
+        leads = db.query(Simulacao).order_by(Simulacao.id.desc()).all()
+
+        return [
+            {
+                "id": l.id,
+                "nome": l.nome,
+                "cpf": l.cpf,
+                "banco": l.banco,
+                "valor": l.valor_aprovado,
+                "score": l.score
+            }
+            for l in leads
+        ]
 
     finally:
         db.close()
