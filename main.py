@@ -1,7 +1,8 @@
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+import requests
 
 from database import engine, SessionLocal, Base
 from models import Simulacao
@@ -15,11 +16,14 @@ Base.metadata.create_all(bind=engine)
 app = FastAPI()
 
 # =========================
-# CORS
+# CORS (LIBERA SEU SITE)
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://recomececredoficial.com.br",
+        "https://www.recomececredoficial.com.br"
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -29,9 +33,9 @@ app.add_middleware(
 # MODELOS
 # =========================
 class Cliente(BaseModel):
-    nome: str
+    nome: str = "Cliente"
     cpf: str
-    produto: str
+    produto: str = "FGTS"
 
 
 class CapturaRequest(BaseModel):
@@ -52,7 +56,7 @@ def home():
 
 
 # =========================
-# FUNÇÃO INTERNA DE SIMULAÇÃO
+# FUNÇÃO INTERNA
 # =========================
 def processar_simulacao(cliente: Cliente, db: Session):
     bancos = definir_banco(cliente.produto)
@@ -87,8 +91,7 @@ def processar_simulacao(cliente: Cliente, db: Session):
     else:
         status = "APROVADO"
 
-    # 🔥 ATUALIZA SCORE DEPOIS
-    db.flush()  # garante que os dados existem
+    db.flush()
 
     simulacoes = db.query(Simulacao).filter(Simulacao.cpf == cliente.cpf).all()
     for s in simulacoes:
@@ -100,60 +103,32 @@ def processar_simulacao(cliente: Cliente, db: Session):
 
 
 # =========================
-# SIMULAÇÃO
+# 🔥 NOVO ENDPOINT (IMPORTANTE)
 # =========================
-@app.post("/simular")
-def simular(cliente: Cliente):
+@app.post("/consulta")
+def consulta(dados: dict):
     db: Session = SessionLocal()
 
     try:
+        cpf = dados.get("cpf")
+
+        cliente = Cliente(
+            cpf=cpf
+        )
+
         resultado, score, status = processar_simulacao(cliente, db)
 
+        # pega o maior valor
+        maior = max(resultado, key=lambda x: x["valor"])
+
         return {
-            "nome": cliente.nome,
-            "cpf": cliente.cpf,
-            "produto": cliente.produto,
-            "score": score,
-            "status": status,
-            "simulacoes": resultado
+            "valor": maior["valor"],
+            "banco": maior["banco"],
+            "status": status
         }
 
     except Exception as e:
-        print("❌ ERRO NA SIMULAÇÃO:", e)
-        return {"erro": str(e)}
-
-    finally:
-        db.close()
-
-
-# =========================
-# 🔥 LISTAR LEADS (ARRUMADO)
-# =========================
-@app.get("/simulacoes")
-def listar_simulacoes():
-    db: Session = SessionLocal()
-
-    try:
-        dados = db.query(Simulacao).all()
-
-        if not dados:
-            return {"mensagem": "Nenhuma simulação encontrada"}
-
-        return [
-            {
-                "id": d.id,
-                "nome": d.nome,
-                "cpf": d.cpf,
-                "produto": d.produto,
-                "banco": d.banco,
-                "valor_aprovado": d.valor_aprovado,
-                "score": d.score
-            }
-            for d in dados
-        ]
-
-    except Exception as e:
-        print("❌ ERRO AO LISTAR:", e)
+        print("❌ ERRO NA CONSULTA:", e)
         return {"erro": str(e)}
 
     finally:
@@ -176,6 +151,18 @@ def captura(dados: CapturaRequest):
         )
 
         resultado, score, status = processar_simulacao(cliente, db)
+
+        # 🔥 ENVIA PARA CRM (trocar depois)
+        try:
+            requests.post("URL_DO_SEU_CRM", json={
+                "nome": cliente.nome,
+                "cpf": cliente.cpf,
+                "produto": cliente.produto,
+                "score": score,
+                "status": status
+            })
+        except:
+            pass
 
         return {
             "ok": True,
