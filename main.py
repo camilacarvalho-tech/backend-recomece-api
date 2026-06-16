@@ -323,4 +323,20 @@ async def receber_webhook(payload: dict):
     print("🔥 WEBHOOK RECEBIDO")
     print(payload)
 
-    return {"status": "ok"}
+    try:
+        lead_id = payload["entry"][0]["changes"][0]["value"]["leadgen_id"]
+
+        print("✅ LEAD ID:", lead_id)
+
+        return {
+            "status": "ok",
+            "lead_id": lead_id
+        }
+
+    except Exception as erro:
+        print("❌ ERRO:", erro)
+
+        return {
+            "status": "erro",
+            "mensagem": str(erro)
+        }
