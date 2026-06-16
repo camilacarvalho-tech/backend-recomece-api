@@ -6,7 +6,8 @@ import requests
 import os
 
 from database import engine, SessionLocal, Base
-from models import Simulacao
+from models import Simulacao, Mensagem
+Base.metadata.create_all(bind=engine)
 from services import calcular_valor, definir_banco, calcular_score
 
 # =========================
@@ -19,16 +20,11 @@ app = FastAPI()
 # =========================
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "https://recomececredoficial.com.br",
-        "https://www.recomececredoficial.com.br",
-        "http://localhost:5500"
-    ],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
 # =========================
 # CONFIG CRM (ENV)
 # =========================
@@ -110,10 +106,14 @@ def processar_simulacao(cliente: Cliente, db: Session):
 # =========================
 @app.post("/consulta")
 def consulta(dados: dict):
+
     db: Session = SessionLocal()
 
     try:
         cpf = dados.get("cpf")
+
+        if not cpf:
+            return {"erro": "CPF não informado"}
 
         cliente = Cliente(cpf=cpf)
 
@@ -134,14 +134,17 @@ def consulta(dados: dict):
     finally:
         db.close()
 
+
 # =========================
 # CAPTURA + ENVIO CRM 🔥
 # =========================
 @app.post("/captura")
 def captura(dados: CapturaRequest):
+
     db: Session = SessionLocal()
 
     try:
+
         cliente = Cliente(
             nome=dados.nome,
             cpf=dados.cpf,
@@ -152,8 +155,8 @@ def captura(dados: CapturaRequest):
 
         maior = max(resultado, key=lambda x: x["valor"])
 
-        # ENVIO PARA CRM
         if CRM_URL:
+
             headers = {
                 "Content-Type": "application/json"
             }
@@ -174,7 +177,13 @@ def captura(dados: CapturaRequest):
             }
 
             try:
-                requests.post(CRM_URL, json=payload, headers=headers)
+                requests.post(
+                    CRM_URL,
+                    json=payload,
+                    headers=headers,
+                    timeout=10
+                )
+
             except Exception as crm_error:
                 print("❌ ERRO CRM:", crm_error)
 
@@ -199,10 +208,16 @@ def captura(dados: CapturaRequest):
 # =========================
 @app.get("/leads")
 def listar_leads():
+
     db: Session = SessionLocal()
 
     try:
-        leads = db.query(Simulacao).order_by(Simulacao.id.desc()).all()
+
+        leads = (
+            db.query(Simulacao)
+            .order_by(Simulacao.id.desc())
+            .all()
+        )
 
         return [
             {
@@ -218,3 +233,94 @@ def listar_leads():
 
     finally:
         db.close()
+
+
+# =========================
+# MODELO MENSAGEM
+# =========================
+class MensagemRequest(BaseModel):
+    cpf: str
+    autor: str
+    texto: str
+
+
+# =========================
+# SALVAR MENSAGEM
+# =========================
+@app.post("/mensagens")
+def salvar_mensagem(dados: MensagemRequest):
+
+    db: Session = SessionLocal()
+
+    try:
+
+        nova = Mensagem(
+            cpf=dados.cpf,
+            autor=dados.autor,
+            texto=dados.texto
+        )
+
+        db.add(nova)
+        db.commit()
+
+        return {"ok": True}
+
+    finally:
+        db.close()
+
+
+# =========================
+# LISTAR MENSAGENS
+# =========================
+@app.get("/mensagens/{cpf}")
+def listar_mensagens(cpf: str):
+
+    db: Session = SessionLocal()
+
+    try:
+
+        mensagens = (
+            db.query(Mensagem)
+            .filter(Mensagem.cpf == cpf)
+            .order_by(Mensagem.id.asc())
+            .all()
+        )
+
+        return [
+            {
+                "id": m.id,
+                "autor": m.autor,
+                "texto": m.texto
+            }
+            for m in mensagens
+        ]
+
+    finally:
+        db.close()
+        # =========================
+# WEBHOOK META
+# =========================
+
+VERIFY_TOKEN = "recomececred123"
+
+
+@app.get("/webhook")
+def verificar_webhook(
+    hub_mode: str = None,
+    hub_verify_token: str = None,
+    hub_challenge: str = None
+):
+
+    if hub_verify_token == VERIFY_TOKEN:
+        return int(hub_challenge)
+
+    return {"erro": "Token inválido"}
+
+
+@app.post("/webhook")
+async def receber_webhook(payload: dict):
+
+    print("🔥 WEBHOOK RECEBIDO")
+    print(payload)
+
+    return {"status": "ok"}
