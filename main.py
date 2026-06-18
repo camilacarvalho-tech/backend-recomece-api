@@ -302,7 +302,7 @@ def listar_mensagens(cpf: str):
 # WEBHOOK META
 # =========================
 
-VERIFY_TOKEN = "recomececred123"
+VERIFY_TOKEN = "recomece123"
 
 
 @app.get("/webhook")
@@ -317,7 +317,6 @@ def verificar_webhook(
 
     return {"erro": "Token inválido"}
 
-
 @app.post("/webhook")
 async def receber_webhook(payload: dict):
 
@@ -326,6 +325,19 @@ async def receber_webhook(payload: dict):
 
     try:
         lead_id = payload["entry"][0]["changes"][0]["value"]["leadgen_id"]
+
+        facebook_token = CRM_TOKEN
+
+        url = f"https://graph.facebook.com/v25.0/{lead_id}"
+
+        params = {
+            "access_token": facebook_token
+        }
+
+        response = requests.get(url, params=params)
+
+        print("FACEBOOK:")
+        print(response.json())
 
         print("✅ LEAD ID:", lead_id)
 
