@@ -6,7 +6,6 @@ import requests
 import os
 import json
 
-# Firebase Admin
 import firebase_admin
 from firebase_admin import credentials, firestore
 
@@ -30,7 +29,6 @@ if FIREBASE_KEY_JSON and not firebase_admin._apps:
         print(f"❌ Erro Firebase: {e}")
 
 def salvar_no_firestore(dados: dict):
-    """Salva um lead/cliente na coleção 'clientes' do Firestore."""
     try:
         db_fire = firestore.client()
         db_fire.collection("clientes").add({
@@ -42,6 +40,27 @@ def salvar_no_firestore(dados: dict):
     except Exception as e:
         print(f"❌ Erro ao salvar Firestore: {e}")
         return False
+
+# Modelo base de cliente vazio (todos os campos do CRM)
+def cliente_base(nome="", cpf="", telefone="", email="", modalidade="", origem="", obs=""):
+    return {
+        "nome": nome or "Lead",
+        "cpf": cpf,
+        "whatsapp": telefone,
+        "telefone": telefone,
+        "email": email,
+        "modalidade": modalidade,
+        "status": "Lead",
+        "origem": origem,
+        "observacoes": obs,
+        "rg": "", "cep": "", "endereco": "", "numero": "",
+        "complemento": "", "bairro": "", "cidade": "", "estado": "",
+        "banco": "", "agencia": "", "tipoConta": "", "numeroConta": "",
+        "valorSolicitado": "", "bancoCrm": "", "dataContato": "",
+        "senhaGov": "", "loginGov": "", "senhaSiape": "",
+        "matriculaSiape": "", "senhaPrefeitura": "",
+        "matriculaPrefeitura": "", "senhaAppBanco": "", "senhaInss": "",
+    }
 
 # =========================
 # APP
@@ -56,9 +75,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# =========================
-# CONFIG (ENV)
-# =========================
 CRM_URL    = os.getenv("CRM_URL")
 CRM_TOKEN  = os.getenv("CRM_TOKEN")
 
@@ -78,9 +94,6 @@ class CapturaRequest(BaseModel):
     produto: str = "FGTS"
     origem: str | None = "Landing Page"
 
-# =========================
-# TESTE
-# =========================
 @app.get("/")
 def home():
     return {"mensagem": "API Recomece Cred funcionando 🚀"}
@@ -91,36 +104,27 @@ def home():
 def processar_simulacao(cliente: ClienteModel, db: Session):
     bancos = definir_banco(cliente.produto)
     resultado = []
-
     for banco in bancos:
         valor = calcular_valor(cliente.cpf, banco)
         nova_simulacao = Simulacao(
-            nome=cliente.nome,
-            cpf=cliente.cpf,
-            telefone=None,
-            produto=cliente.produto,
-            banco=banco,
-            valor_aprovado=valor,
-            score="PROCESSANDO"
+            nome=cliente.nome, cpf=cliente.cpf, telefone=None,
+            produto=cliente.produto, banco=banco,
+            valor_aprovado=valor, score="PROCESSANDO"
         )
         db.add(nova_simulacao)
         resultado.append({"banco": banco, "valor": valor})
-
     score = calcular_score(cliente.cpf)
-
     if score == "BAIXO":
         status = "EM ANÁLISE"
     elif score == "MÉDIO":
         status = "PRÉ-APROVADO"
     else:
         status = "APROVADO"
-
     db.flush()
     simulacoes = db.query(Simulacao).filter(Simulacao.cpf == cliente.cpf).all()
     for s in simulacoes:
         s.score = score
     db.commit()
-
     return resultado, score, status
 
 # =========================
@@ -150,45 +154,19 @@ def consulta(dados: dict):
 def captura(dados: CapturaRequest):
     db: Session = SessionLocal()
     try:
-        cliente = ClienteModel(
-            nome=dados.nome,
-            cpf=dados.cpf,
-            produto=dados.produto
-        )
+        cliente = ClienteModel(nome=dados.nome, cpf=dados.cpf, produto=dados.produto)
         resultado, score, status = processar_simulacao(cliente, db)
         maior = max(resultado, key=lambda x: x["valor"])
-
-        # Salva no Firestore
-        salvar_no_firestore({
-            "nome":      dados.nome,
-            "cpf":       dados.cpf,
-            "whatsapp":  dados.telefone or "",
-            "telefone":  dados.telefone or "",
-            "email":     dados.email or "",
-            "modalidade":dados.produto,
-            "status":    "Lead",
-            "origem":    dados.origem or "Landing Page",
-            "banco":     maior["banco"],
-            "valorSolicitado": str(maior["valor"]),
-            "rg": "", "cep": "", "endereco": "", "numero": "",
-            "complemento": "", "bairro": "", "cidade": "", "estado": "",
-            "agencia": "", "tipoConta": "", "numeroConta": "",
-            "senhaGov": "", "loginGov": "", "senhaSiape": "",
-            "matriculaSiape": "", "senhaPrefeitura": "",
-            "matriculaPrefeitura": "", "senhaAppBanco": "", "senhaInss": "",
-            "observacoes": f"Score: {score} | Status simulação: {status}",
-            "dataContato": "",
-            "bancoCrm": "",
-        })
-
-        return {
-            "ok": True,
-            "resultado": {
-                "valor": maior["valor"],
-                "banco": maior["banco"],
-                "status": status
-            }
-        }
+        registro = cliente_base(
+            nome=dados.nome, cpf=dados.cpf, telefone=dados.telefone or "",
+            email=dados.email or "", modalidade=dados.produto,
+            origem=dados.origem or "Landing Page",
+            obs=f"Score: {score} | Simulação: {status}"
+        )
+        registro["banco"] = maior["banco"]
+        registro["valorSolicitado"] = str(maior["valor"])
+        salvar_no_firestore(registro)
+        return {"ok": True, "resultado": {"valor": maior["valor"], "banco": maior["banco"], "status": status}}
     except Exception as e:
         print("❌ ERRO NA CAPTURA:", e)
         return {"erro": str(e)}
@@ -203,17 +181,8 @@ def listar_leads():
     db: Session = SessionLocal()
     try:
         leads = db.query(Simulacao).order_by(Simulacao.id.desc()).all()
-        return [
-            {
-                "id": l.id,
-                "nome": l.nome,
-                "cpf": l.cpf,
-                "banco": l.banco,
-                "valor": l.valor_aprovado,
-                "score": l.score
-            }
-            for l in leads
-        ]
+        return [{"id": l.id, "nome": l.nome, "cpf": l.cpf, "banco": l.banco,
+                 "valor": l.valor_aprovado, "score": l.score} for l in leads]
     finally:
         db.close()
 
@@ -240,27 +209,18 @@ def salvar_mensagem(dados: MensagemRequest):
 def listar_mensagens(cpf: str):
     db: Session = SessionLocal()
     try:
-        mensagens = (
-            db.query(Mensagem)
-            .filter(Mensagem.cpf == cpf)
-            .order_by(Mensagem.id.asc())
-            .all()
-        )
+        mensagens = db.query(Mensagem).filter(Mensagem.cpf == cpf).order_by(Mensagem.id.asc()).all()
         return [{"id": m.id, "autor": m.autor, "texto": m.texto} for m in mensagens]
     finally:
         db.close()
 
 # =========================
-# WEBHOOK META 🔥
+# WEBHOOK META — Formulário + Messenger + Instagram
 # =========================
 VERIFY_TOKEN = "recomece123"
 
 @app.get("/webhook")
-def verificar_webhook(
-    hub_mode: str = None,
-    hub_verify_token: str = None,
-    hub_challenge: str = None
-):
+def verificar_webhook(hub_mode: str = None, hub_verify_token: str = None, hub_challenge: str = None):
     if hub_verify_token == VERIFY_TOKEN:
         return int(hub_challenge)
     return {"erro": "Token inválido"}
@@ -269,65 +229,49 @@ def verificar_webhook(
 async def receber_webhook(payload: dict):
     print("🔥 WEBHOOK RECEBIDO")
     print(payload)
-
     try:
-        lead_id = payload["entry"][0]["changes"][0]["value"]["leadgen_id"]
+        objeto = payload.get("object", "")
 
-        # Busca dados do lead no Meta
-        facebook_token = CRM_TOKEN
-        url = f"https://graph.facebook.com/v25.0/{lead_id}"
-        response = requests.get(url, params={"access_token": facebook_token})
-        lead_data = response.json()
-        print("📦 DADOS META:", lead_data)
+        for entry in payload.get("entry", []):
 
-        # Extrai campos do formulário
-        nome     = ""
-        telefone = ""
-        email    = ""
-        cpf      = ""
+            # ===== FORMULÁRIO (Lead Ads) =====
+            for change in entry.get("changes", []):
+                valor = change.get("value", {})
+                if "leadgen_id" in valor:
+                    lead_id = valor["leadgen_id"]
+                    url = f"https://graph.facebook.com/v25.0/{lead_id}"
+                    resp = requests.get(url, params={"access_token": CRM_TOKEN})
+                    lead_data = resp.json()
+                    print("📦 FORM META:", lead_data)
 
-        field_data = lead_data.get("field_data", [])
-        for campo in field_data:
-            nome_campo = campo.get("name", "").lower()
-            valor      = campo.get("values", [""])[0]
-            if "nome" in nome_campo or "name" in nome_campo:
-                nome = valor
-            elif "telefone" in nome_campo or "phone" in nome_campo or "whatsapp" in nome_campo:
-                telefone = valor
-            elif "email" in nome_campo:
-                email = valor
-            elif "cpf" in nome_campo:
-                cpf = valor
+                    nome = telefone = email = cpf = ""
+                    for campo in lead_data.get("field_data", []):
+                        n = campo.get("name", "").lower()
+                        v = campo.get("values", [""])[0]
+                        if "nome" in n or "name" in n: nome = v
+                        elif "telefone" in n or "phone" in n or "whats" in n: telefone = v
+                        elif "email" in n: email = v
+                        elif "cpf" in n: cpf = v
 
-        # Define origem pelo ad
-        origem = "Facebook"
-        ad_name = lead_data.get("ad_name", "").lower()
-        if "instagram" in ad_name:
-            origem = "Instagram"
-        elif "google" in ad_name:
-            origem = "Google ADS"
+                    origem = "Tráfego Pago"
+                    salvar_no_firestore(cliente_base(
+                        nome=nome, cpf=cpf, telefone=telefone, email=email,
+                        origem=origem, obs=f"Formulário Meta | Lead ID: {lead_id}"
+                    ))
 
-        # Salva no Firestore
-        salvar_no_firestore({
-            "nome":      nome or "Lead Meta",
-            "cpf":       cpf,
-            "whatsapp":  telefone,
-            "telefone":  telefone,
-            "email":     email,
-            "modalidade":"",
-            "status":    "Lead",
-            "origem":    origem,
-            "observacoes": f"Lead ID Meta: {lead_id}",
-            "rg": "", "cep": "", "endereco": "", "numero": "",
-            "complemento": "", "bairro": "", "cidade": "", "estado": "",
-            "banco": "", "agencia": "", "tipoConta": "", "numeroConta": "",
-            "valorSolicitado": "", "bancoCrm": "", "dataContato": "",
-            "senhaGov": "", "loginGov": "", "senhaSiape": "",
-            "matriculaSiape": "", "senhaPrefeitura": "",
-            "matriculaPrefeitura": "", "senhaAppBanco": "", "senhaInss": "",
-        })
+            # ===== MENSAGENS (Messenger / Instagram) =====
+            for msg_event in entry.get("messaging", []):
+                sender_id = msg_event.get("sender", {}).get("id", "")
+                texto = msg_event.get("message", {}).get("text", "")
+                if sender_id and texto:
+                    origem = "Instagram" if objeto == "instagram" else "Facebook"
+                    salvar_no_firestore(cliente_base(
+                        nome=f"Contato {origem}",
+                        origem=origem,
+                        obs=f"DM {origem} | ID: {sender_id} | Msg: {texto}"
+                    ))
 
-        return {"status": "ok", "lead_id": lead_id, "nome": nome}
+        return {"status": "ok"}
 
     except Exception as erro:
         print("❌ ERRO WEBHOOK:", erro)
