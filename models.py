@@ -36,4 +36,4 @@ class Mensagem(Base):
     autor = Column(String)
     texto = Column(String)
 
-    data = Column(DateTime, default=datetime.utcnow)
+    data = Column(DateTime, default=datetime.utcnow)    
