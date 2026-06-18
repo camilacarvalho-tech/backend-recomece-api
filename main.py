@@ -31,6 +31,7 @@ app.add_middleware(
 CRM_URL = os.getenv("CRM_URL")
 CRM_TOKEN = os.getenv("CRM_TOKEN")
 
+
 # =========================
 # MODELOS
 # =========================
