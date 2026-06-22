@@ -1,5 +1,6 @@
-from fastapi import FastAPI
+﻿from fastapi import FastAPI, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 import requests
@@ -220,11 +221,14 @@ def listar_mensagens(cpf: str):
 VERIFY_TOKEN = "recomece123"
 
 @app.get("/webhook")
-def verificar_webhook(hub_mode: str = None, hub_verify_token: str = None, hub_challenge: str = None):
-    if hub_verify_token == VERIFY_TOKEN:
-        return int(hub_challenge)
-    return {"erro": "Token inválido"}
-
+def verificar_webhook(
+ hub_mode: str = Query(None, alias="hub.mode"),
+ hub_verify_token: str = Query(None, alias="hub.verify_token"),
+ hub_challenge: str = Query(None, alias="hub.challenge")
+):
+ if hub_verify_token == VERIFY_TOKEN:
+ return PlainTextResponse(content=hub_challenge)
+ return {"erro": "Token invalido"}
 @app.post("/webhook")
 async def receber_webhook(payload: dict):
     print("🔥 WEBHOOK RECEBIDO")
