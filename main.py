@@ -119,7 +119,7 @@ CRM_URL    = os.getenv("CRM_URL")
 CRM_TOKEN  = os.getenv("CRM_TOKEN")
 
 # Token e número do WhatsApp para ENVIAR mensagens
-WHATSAPP_TOKEN  = os.getenv("WHATSAPP_TOKEN")
+WHATSAPP_TOKEN  = (os.getenv("WHATSAPP_TOKEN") or "").strip()
 PHONE_NUMBER_ID = "1163031670226329"
 
 # =========================
