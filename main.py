@@ -3,7 +3,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
-from datetime import datetime
 import requests
 import os
 import json
@@ -43,46 +42,6 @@ def salvar_no_firestore(dados: dict):
         print(f"❌ Erro ao salvar Firestore: {e}")
         return False
 
-# Salva mensagem do WhatsApp SEM duplicar o cliente (agrupa pelo número)
-def salvar_ou_atualizar_whatsapp(numero, nome, texto):
-    try:
-        db_fire = firestore.client()
-        col = db_fire.collection("clientes")
-        existentes = col.where("whatsapp", "==", numero).limit(1).get()
-
-        nova_msg = {
-            "autor": "cliente",
-            "texto": texto,
-            "data": datetime.utcnow().isoformat(),
-        }
-
-        if existentes:
-            doc = existentes[0]
-            doc.reference.update({
-                "mensagens": firestore.ArrayUnion([nova_msg]),
-                "ultimaMensagem": texto,
-                "atualizadoEm": firestore.SERVER_TIMESTAMP,
-            })
-            print(f"♻️ Conversa atualizada: {numero}")
-            return False
-        else:
-            dados = cliente_base(
-                nome=nome or f"WhatsApp {numero}",
-                telefone=numero,
-                origem="WhatsApp",
-                obs=f"Lead via WhatsApp | Número: {numero}",
-            )
-            dados["mensagens"] = [nova_msg]
-            dados["ultimaMensagem"] = texto
-            dados["criadoEm"] = firestore.SERVER_TIMESTAMP
-            dados["atualizadoEm"] = firestore.SERVER_TIMESTAMP
-            col.add(dados)
-            print(f"🆕 Novo cliente WhatsApp: {numero}")
-            return True
-    except Exception as e:
-        print(f"❌ Erro salvar/atualizar WhatsApp: {e}")
-        return False
-
 # Modelo base de cliente vazio (todos os campos do CRM)
 def cliente_base(nome="", cpf="", telefone="", email="", modalidade="", origem="", obs=""):
     return {
@@ -105,6 +64,45 @@ def cliente_base(nome="", cpf="", telefone="", email="", modalidade="", origem="
     }
 
 # =========================
+# CONVERSA / HISTÓRICO (sem duplicar)
+# =========================
+def buscar_ou_criar_cliente(numero: str, nome: str = "", origem: str = "WhatsApp"):
+    """Procura cliente pelo telefone. Se existir, retorna o id. Se não, cria 1 vez."""
+    db_fire = firestore.client()
+    existentes = db_fire.collection("clientes").where("telefone", "==", numero).limit(1).stream()
+    for doc in existentes:
+        return doc.id
+
+    novo = cliente_base(
+        nome=nome or f"WhatsApp {numero}",
+        telefone=numero,
+        origem=origem,
+        obs=f"Contato via {origem}"
+    )
+    novo["ultimaMensagem"] = ""
+    ref = db_fire.collection("clientes").add({
+        **novo,
+        "criadoEm": firestore.SERVER_TIMESTAMP,
+        "ultimaAtualizacao": firestore.SERVER_TIMESTAMP,
+    })
+    print(f"🆕 Novo cliente criado: {numero}")
+    return ref[1].id
+
+def adicionar_mensagem(cliente_id: str, autor: str, texto: str):
+    """Salva a mensagem no histórico do cliente (subcoleção 'mensagens')."""
+    db_fire = firestore.client()
+    db_fire.collection("clientes").document(cliente_id).collection("mensagens").add({
+        "autor": autor,          # "cliente" ou "atendente"
+        "texto": texto,
+        "data": firestore.SERVER_TIMESTAMP,
+    })
+    db_fire.collection("clientes").document(cliente_id).update({
+        "ultimaMensagem": texto,
+        "ultimaAtualizacao": firestore.SERVER_TIMESTAMP,
+    })
+    print(f"💾 Mensagem salva ({autor}): {texto}")
+
+# =========================
 # APP
 # =========================
 app = FastAPI(title="API Recomece Cred")
@@ -119,6 +117,10 @@ app.add_middleware(
 
 CRM_URL    = os.getenv("CRM_URL")
 CRM_TOKEN  = os.getenv("CRM_TOKEN")
+
+# Token e número do WhatsApp para ENVIAR mensagens
+WHATSAPP_TOKEN  = os.getenv("WHATSAPP_TOKEN")
+PHONE_NUMBER_ID = "1163031670226329"
 
 # =========================
 # MODELOS
@@ -135,6 +137,10 @@ class CapturaRequest(BaseModel):
     email: str | None = None
     produto: str = "FGTS"
     origem: str | None = "Landing Page"
+
+class EnvioWhatsApp(BaseModel):
+    numero: str
+    texto: str
 
 @app.get("/")
 def home():
@@ -229,7 +235,7 @@ def listar_leads():
         db.close()
 
 # =========================
-# MENSAGENS
+# MENSAGENS (SQLite - antigo)
 # =========================
 class MensagemRequest(BaseModel):
     cpf: str
@@ -255,6 +261,56 @@ def listar_mensagens(cpf: str):
         return [{"id": m.id, "autor": m.autor, "texto": m.texto} for m in mensagens]
     finally:
         db.close()
+
+# =========================
+# CONVERSA WHATSAPP (novo - Firestore)
+# =========================
+@app.get("/conversa/{numero}")
+def ver_conversa(numero: str):
+    """Retorna o histórico de mensagens de um número."""
+    db_fire = firestore.client()
+    docs = list(db_fire.collection("clientes").where("telefone", "==", numero).limit(1).stream())
+    if not docs:
+        return {"cliente_id": None, "mensagens": []}
+    cliente_id = docs[0].id
+    msgs = db_fire.collection("clientes").document(cliente_id).collection("mensagens").order_by("data").stream()
+    return {
+        "cliente_id": cliente_id,
+        "mensagens": [
+            {"autor": m.to_dict().get("autor"), "texto": m.to_dict().get("texto")}
+            for m in msgs
+        ],
+    }
+
+@app.post("/enviar-whatsapp")
+def enviar_whatsapp(dados: EnvioWhatsApp):
+    """Envia uma mensagem de texto pro cliente e salva no histórico."""
+    if not WHATSAPP_TOKEN:
+        return {"ok": False, "erro": "WHATSAPP_TOKEN não configurado no Render"}
+    try:
+        url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+        headers = {
+            "Authorization": f"Bearer {WHATSAPP_TOKEN}",
+            "Content-Type": "application/json",
+        }
+        body = {
+            "messaging_product": "whatsapp",
+            "to": dados.numero,
+            "type": "text",
+            "text": {"body": dados.texto},
+        }
+        resp = requests.post(url, headers=headers, json=body)
+        resultado = resp.json()
+        print("📤 ENVIO WHATSAPP:", resultado)
+
+        if resp.ok:
+            cliente_id = buscar_ou_criar_cliente(dados.numero)
+            adicionar_mensagem(cliente_id, "atendente", dados.texto)
+
+        return {"ok": resp.ok, "resposta": resultado}
+    except Exception as e:
+        print("❌ ERRO AO ENVIAR WHATSAPP:", e)
+        return {"ok": False, "erro": str(e)}
 
 # =========================
 # WEBHOOK META — Formulário + WhatsApp + Messenger + Instagram
@@ -306,7 +362,7 @@ async def receber_webhook(payload: dict):
                         origem="Tráfego Pago", obs=f"Formulário Meta | Lead ID: {lead_id}"
                     ))
 
-                # ----- WHATSAPP (Cloud API) -----
+                # ----- WHATSAPP (Cloud API) - sem duplicar + histórico -----
                 if valor.get("messaging_product") == "whatsapp" and "messages" in valor:
                     contatos = valor.get("contacts", [])
                     nome_contato = ""
@@ -317,4 +373,30 @@ async def receber_webhook(payload: dict):
 
                     for msg in valor.get("messages", []):
                         numero = msg.get("from", "") or wa_numero
-                        tipo = ms
+                        tipo = msg.get("type", "")
+                        if tipo == "text":
+                            texto = msg.get("text", {}).get("body", "")
+                        else:
+                            texto = f"[mensagem do tipo {tipo}]"
+
+                        print(f"📱 WHATSAPP de {numero}: {texto}")
+                        cliente_id = buscar_ou_criar_cliente(numero, nome_contato)
+                        adicionar_mensagem(cliente_id, "cliente", texto)
+
+            # ===== MENSAGENS (Messenger / Instagram) =====
+            for msg_event in entry.get("messaging", []):
+                sender_id = msg_event.get("sender", {}).get("id", "")
+                texto = msg_event.get("message", {}).get("text", "")
+                if sender_id and texto:
+                    origem = "Instagram" if objeto == "instagram" else "Facebook"
+                    salvar_no_firestore(cliente_base(
+                        nome=f"Contato {origem}",
+                        origem=origem,
+                        obs=f"DM {origem} | ID: {sender_id} | Msg: {texto}"
+                    ))
+
+        return {"status": "ok"}
+
+    except Exception as erro:
+        print("❌ ERRO WEBHOOK:", erro)
+        return {"status": "erro", "mensagem": str(erro)}
