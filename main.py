@@ -216,19 +216,20 @@ def listar_mensagens(cpf: str):
         db.close()
 
 # =========================
-# WEBHOOK META — Formulário + Messenger + Instagram
+# WEBHOOK META — Formulário + WhatsApp + Messenger + Instagram
 # =========================
 VERIFY_TOKEN = "recomece123"
 
 @app.get("/webhook")
 def verificar_webhook(
- hub_mode: str = Query(None, alias="hub.mode"),
- hub_verify_token: str = Query(None, alias="hub.verify_token"),
- hub_challenge: str = Query(None, alias="hub.challenge")
+    hub_mode: str = Query(None, alias="hub.mode"),
+    hub_verify_token: str = Query(None, alias="hub.verify_token"),
+    hub_challenge: str = Query(None, alias="hub.challenge")
 ):
- if hub_verify_token == VERIFY_TOKEN:
- return PlainTextResponse(content=hub_challenge)
- return {"erro": "Token invalido"}
+    if hub_verify_token == VERIFY_TOKEN:
+        return PlainTextResponse(content=hub_challenge)
+    return {"erro": "Token invalido"}
+
 @app.post("/webhook")
 async def receber_webhook(payload: dict):
     print("🔥 WEBHOOK RECEBIDO")
@@ -238,9 +239,11 @@ async def receber_webhook(payload: dict):
 
         for entry in payload.get("entry", []):
 
-            # ===== FORMULÁRIO (Lead Ads) =====
+            # ===== CHANGES: Formulário (Lead Ads) + WhatsApp =====
             for change in entry.get("changes", []):
                 valor = change.get("value", {})
+
+                # ----- FORMULÁRIO (Lead Ads) -----
                 if "leadgen_id" in valor:
                     lead_id = valor["leadgen_id"]
                     url = f"https://graph.facebook.com/v25.0/{lead_id}"
@@ -257,11 +260,35 @@ async def receber_webhook(payload: dict):
                         elif "email" in n: email = v
                         elif "cpf" in n: cpf = v
 
-                    origem = "Tráfego Pago"
                     salvar_no_firestore(cliente_base(
                         nome=nome, cpf=cpf, telefone=telefone, email=email,
-                        origem=origem, obs=f"Formulário Meta | Lead ID: {lead_id}"
+                        origem="Tráfego Pago", obs=f"Formulário Meta | Lead ID: {lead_id}"
                     ))
+
+                # ----- WHATSAPP (Cloud API) -----
+                if valor.get("messaging_product") == "whatsapp" and "messages" in valor:
+                    contatos = valor.get("contacts", [])
+                    nome_contato = ""
+                    wa_numero = ""
+                    if contatos:
+                        nome_contato = contatos[0].get("profile", {}).get("name", "")
+                        wa_numero = contatos[0].get("wa_id", "")
+
+                    for msg in valor.get("messages", []):
+                        numero = msg.get("from", "") or wa_numero
+                        tipo = msg.get("type", "")
+                        if tipo == "text":
+                            texto = msg.get("text", {}).get("body", "")
+                        else:
+                            texto = f"[mensagem do tipo {tipo}]"
+
+                        print(f"📱 WHATSAPP de {numero}: {texto}")
+                        salvar_no_firestore(cliente_base(
+                            nome=nome_contato or f"WhatsApp {numero}",
+                            telefone=numero,
+                            origem="WhatsApp",
+                            obs=f"WhatsApp | Número: {numero} | Msg: {texto}"
+                        ))
 
             # ===== MENSAGENS (Messenger / Instagram) =====
             for msg_event in entry.get("messaging", []):
