@@ -3,6 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
+from datetime import datetime
 import requests
 import os
 import json
@@ -40,6 +41,46 @@ def salvar_no_firestore(dados: dict):
         return True
     except Exception as e:
         print(f"❌ Erro ao salvar Firestore: {e}")
+        return False
+
+# Salva mensagem do WhatsApp SEM duplicar o cliente (agrupa pelo número)
+def salvar_ou_atualizar_whatsapp(numero, nome, texto):
+    try:
+        db_fire = firestore.client()
+        col = db_fire.collection("clientes")
+        existentes = col.where("whatsapp", "==", numero).limit(1).get()
+
+        nova_msg = {
+            "autor": "cliente",
+            "texto": texto,
+            "data": datetime.utcnow().isoformat(),
+        }
+
+        if existentes:
+            doc = existentes[0]
+            doc.reference.update({
+                "mensagens": firestore.ArrayUnion([nova_msg]),
+                "ultimaMensagem": texto,
+                "atualizadoEm": firestore.SERVER_TIMESTAMP,
+            })
+            print(f"♻️ Conversa atualizada: {numero}")
+            return False
+        else:
+            dados = cliente_base(
+                nome=nome or f"WhatsApp {numero}",
+                telefone=numero,
+                origem="WhatsApp",
+                obs=f"Lead via WhatsApp | Número: {numero}",
+            )
+            dados["mensagens"] = [nova_msg]
+            dados["ultimaMensagem"] = texto
+            dados["criadoEm"] = firestore.SERVER_TIMESTAMP
+            dados["atualizadoEm"] = firestore.SERVER_TIMESTAMP
+            col.add(dados)
+            print(f"🆕 Novo cliente WhatsApp: {numero}")
+            return True
+    except Exception as e:
+        print(f"❌ Erro salvar/atualizar WhatsApp: {e}")
         return False
 
 # Modelo base de cliente vazio (todos os campos do CRM)
@@ -276,34 +317,4 @@ async def receber_webhook(payload: dict):
 
                     for msg in valor.get("messages", []):
                         numero = msg.get("from", "") or wa_numero
-                        tipo = msg.get("type", "")
-                        if tipo == "text":
-                            texto = msg.get("text", {}).get("body", "")
-                        else:
-                            texto = f"[mensagem do tipo {tipo}]"
-
-                        print(f"📱 WHATSAPP de {numero}: {texto}")
-                        salvar_no_firestore(cliente_base(
-                            nome=nome_contato or f"WhatsApp {numero}",
-                            telefone=numero,
-                            origem="WhatsApp",
-                            obs=f"WhatsApp | Número: {numero} | Msg: {texto}"
-                        ))
-
-            # ===== MENSAGENS (Messenger / Instagram) =====
-            for msg_event in entry.get("messaging", []):
-                sender_id = msg_event.get("sender", {}).get("id", "")
-                texto = msg_event.get("message", {}).get("text", "")
-                if sender_id and texto:
-                    origem = "Instagram" if objeto == "instagram" else "Facebook"
-                    salvar_no_firestore(cliente_base(
-                        nome=f"Contato {origem}",
-                        origem=origem,
-                        obs=f"DM {origem} | ID: {sender_id} | Msg: {texto}"
-                    ))
-
-        return {"status": "ok"}
-
-    except Exception as erro:
-        print("❌ ERRO WEBHOOK:", erro)
-        return {"status": "erro", "mensagem": str(erro)}
+                        tipo = ms
