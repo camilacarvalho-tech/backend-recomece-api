@@ -64,14 +64,32 @@ def cliente_base(nome="", cpf="", telefone="", email="", modalidade="", origem="
     }
 
 # =========================
+# TELEFONE — normalização (ignora 55, DDD e o 9 extra)
+# =========================
+def _so_digitos(s):
+    return "".join(ch for ch in str(s or "") if ch.isdigit())
+
+def _chave_telefone(numero):
+    """Reduz o número aos últimos 8 dígitos, que são estáveis
+    independente de ter 55, DDD ou o 9 extra na frente."""
+    d = _so_digitos(numero)
+    return d[-8:] if len(d) >= 8 else d
+
+# =========================
 # CONVERSA / HISTÓRICO (sem duplicar)
 # =========================
 def buscar_ou_criar_cliente(numero: str, nome: str = "", origem: str = "WhatsApp"):
-    """Procura cliente pelo telefone. Se existir, retorna o id. Se não, cria 1 vez."""
+    """Procura o cliente comparando telefone E whatsapp pelos últimos 8 dígitos.
+    Se achar, devolve o id (não duplica). Se não, cria 1 vez."""
     db_fire = firestore.client()
-    existentes = db_fire.collection("clientes").where("telefone", "==", numero).limit(1).stream()
-    for doc in existentes:
-        return doc.id
+    chave = _chave_telefone(numero)
+
+    if chave:
+        for doc in db_fire.collection("clientes").stream():
+            dados = doc.to_dict() or {}
+            if (_chave_telefone(dados.get("telefone")) == chave or
+                    _chave_telefone(dados.get("whatsapp")) == chave):
+                return doc.id
 
     novo = cliente_base(
         nome=nome or f"WhatsApp {numero}",
@@ -267,12 +285,9 @@ def listar_mensagens(cpf: str):
 # =========================
 @app.get("/conversa/{numero}")
 def ver_conversa(numero: str):
-    """Retorna o histórico de mensagens de um número."""
+    """Retorna o histórico de mensagens de um número (usa a mesma busca normalizada)."""
     db_fire = firestore.client()
-    docs = list(db_fire.collection("clientes").where("telefone", "==", numero).limit(1).stream())
-    if not docs:
-        return {"cliente_id": None, "mensagens": []}
-    cliente_id = docs[0].id
+    cliente_id = buscar_ou_criar_cliente(numero)
     msgs = db_fire.collection("clientes").document(cliente_id).collection("mensagens").order_by("data").stream()
     return {
         "cliente_id": cliente_id,
