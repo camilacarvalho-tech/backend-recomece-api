@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, Query
+﻿from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
@@ -302,6 +302,50 @@ def enviar_whatsapp(dados: EnvioWhatsApp):
         print("❌ ERRO AO ENVIAR WHATSAPP:", e)
         return {"ok": False, "erro": str(e)}
 
+@app.post("/enviar-audio")
+async def enviar_audio(numero: str = Form(...), arquivo: UploadFile = File(...)):
+    return await _enviar_midia(numero, arquivo)
+
+@app.post("/enviar-arquivo")
+async def enviar_arquivo(numero: str = Form(...), arquivo: UploadFile = File(...)):
+    return await _enviar_midia(numero, arquivo)
+
+async def _enviar_midia(numero: str, arquivo: UploadFile):
+    if not WHATSAPP_TOKEN:
+        return {"ok": False, "erro": "WHATSAPP_TOKEN não configurado"}
+    try:
+        conteudo = await arquivo.read()
+        mime = arquivo.content_type or "application/octet-stream"
+        nome_arq = arquivo.filename or "arquivo"
+        headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}"}
+        files = {"file": (nome_arq, conteudo, mime)}
+        data = {"messaging_product": "whatsapp"}
+        up = requests.post(f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/media",
+                           headers=headers, files=files, data=data)
+        media_id = up.json().get("id")
+        if not media_id:
+            return {"ok": False, "erro": up.json()}
+
+        if mime.startswith("image/"):
+            tipo = "image"; corpo_midia = {"image": {"id": media_id}}
+        elif mime.startswith("audio/"):
+            tipo = "audio"; corpo_midia = {"audio": {"id": media_id}}
+        elif mime.startswith("video/"):
+            tipo = "video"; corpo_midia = {"video": {"id": media_id}}
+        else:
+            tipo = "document"; corpo_midia = {"document": {"id": media_id, "filename": nome_arq}}
+
+        body = {"messaging_product": "whatsapp", "to": numero, "type": tipo, **corpo_midia}
+        resp = requests.post(f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages",
+                             headers={**headers, "Content-Type": "application/json"}, json=body)
+        if resp.ok:
+            cliente_id, _ = buscar_ou_criar_cliente(numero)
+            adicionar_mensagem_midia(cliente_id, "atendente", tipo, media_id, nome_arq)
+        return {"ok": resp.ok, "resposta": resp.json()}
+    except Exception as e:
+        print("❌ ERRO MÍDIA:", e)
+        return {"ok": False, "erro": str(e)}
+
 @app.get("/midia/{media_id}")
 def obter_midia(media_id: str):
     if not WHATSAPP_TOKEN:
@@ -316,7 +360,7 @@ def obter_midia(media_id: str):
         r = requests.get(media_url, headers=headers)
         return Response(content=r.content, media_type=mime)
     except Exception as e:
-        print("❌ ERRO MÍDIA:", e)
+        print("❌ ERRO MÍDIA GET:", e)
         return {"erro": str(e)}
 
 @app.post("/disparar-remarketing")
@@ -436,7 +480,6 @@ async def receber_webhook(payload: dict):
                         else:
                             adicionar_mensagem(cliente_id, "cliente", f"[mensagem do tipo {tipo}]")
 
-                        # 🤖 Primeiro contato: manda o menu de modalidades
                         if novo and WHATSAPP_TOKEN:
                             try:
                                 enviar_menu_modalidades(numero)
