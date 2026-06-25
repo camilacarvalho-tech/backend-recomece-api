@@ -62,7 +62,6 @@ def _chave_telefone(numero):
     return d[-8:] if len(d) >= 8 else d
 
 def buscar_ou_criar_cliente(numero: str, nome: str = "", origem: str = "WhatsApp"):
-    """Retorna (cliente_id, novo). novo=True se foi criado agora."""
     db_fire = firestore.client()
     chave = _chave_telefone(numero)
     if chave:
@@ -84,26 +83,23 @@ def buscar_ou_criar_cliente(numero: str, nome: str = "", origem: str = "WhatsApp
 def adicionar_mensagem(cliente_id: str, autor: str, texto: str):
     db_fire = firestore.client()
     db_fire.collection("clientes").document(cliente_id).collection("mensagens").add({
-        "autor": autor, "texto": texto, "tipo": "texto",
-        "data": firestore.SERVER_TIMESTAMP,
+        "autor": autor, "texto": texto, "tipo": "texto", "data": firestore.SERVER_TIMESTAMP,
     })
     db_fire.collection("clientes").document(cliente_id).update({
-        "ultimaMensagem": texto, "ultimaAtualizacao": firestore.SERVER_TIMESTAMP,
-        "ultimoAutor": autor,
+        "ultimaMensagem": texto, "ultimaAtualizacao": firestore.SERVER_TIMESTAMP, "ultimoAutor": autor,
     })
-    print(f"💾 Mensagem salva ({autor}): {texto}")
 
 def adicionar_mensagem_midia(cliente_id: str, autor: str, tipo: str, media_id: str, legenda: str = ""):
     db_fire = firestore.client()
     db_fire.collection("clientes").document(cliente_id).collection("mensagens").add({
-        "autor": autor, "tipo": tipo, "midiaId": media_id, "texto": legenda,
-        "data": firestore.SERVER_TIMESTAMP,
+        "autor": autor, "tipo": tipo, "midiaId": media_id, "texto": legenda, "data": firestore.SERVER_TIMESTAMP,
     })
     db_fire.collection("clientes").document(cliente_id).update({
-        "ultimaMensagem": f"[{tipo}]", "ultimaAtualizacao": firestore.SERVER_TIMESTAMP,
-        "ultimoAutor": autor,
+        "ultimaMensagem": f"[{tipo}]", "ultimaAtualizacao": firestore.SERVER_TIMESTAMP, "ultimoAutor": autor,
     })
-    print(f"💾 Mídia salva ({autor}, {tipo}): {media_id}")
+
+def atualizar_cliente_campos(cliente_id: str, campos: dict):
+    firestore.client().collection("clientes").document(cliente_id).update(campos)
 
 # =========================
 # APP
@@ -117,13 +113,43 @@ CRM_TOKEN  = os.getenv("CRM_TOKEN")
 WHATSAPP_TOKEN  = (os.getenv("WHATSAPP_TOKEN") or "").strip()
 PHONE_NUMBER_ID = "1163031670226329"
 
-# Mensagem do robô de boas-vindas (primeiro contato)
-MENSAGEM_AUTO = "Olá! 👋 Recebemos sua mensagem. Já já um consultor vai te atender. 😊"
-
 def enviar_texto_whatsapp(numero: str, texto: str):
     url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
     headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
     body = {"messaging_product": "whatsapp", "to": numero, "type": "text", "text": {"body": texto}}
+    return requests.post(url, headers=headers, json=body)
+
+def enviar_menu_modalidades(numero: str):
+    url = f"https://graph.facebook.com/v21.0/{PHONE_NUMBER_ID}/messages"
+    headers = {"Authorization": f"Bearer {WHATSAPP_TOKEN}", "Content-Type": "application/json"}
+    body = {
+        "messaging_product": "whatsapp",
+        "to": numero,
+        "type": "interactive",
+        "interactive": {
+            "type": "list",
+            "header": {"type": "text", "text": "Recomece Cred"},
+            "body": {"text": "Olá! 👋 Seja bem-vindo(a)! Escolha a modalidade que você deseja que um consultor já vai te atender:"},
+            "footer": {"text": "Toque em Ver opções"},
+            "action": {
+                "button": "Ver opções",
+                "sections": [{
+                    "title": "Modalidades",
+                    "rows": [
+                        {"id": "mod_energia",    "title": "Conta de Energia"},
+                        {"id": "mod_clt",        "title": "Crédito CLT"},
+                        {"id": "mod_refi_casa",  "title": "Refinanciamento Casa"},
+                        {"id": "mod_refi_carro", "title": "Refinanciamento Carro"},
+                        {"id": "mod_fgts",       "title": "Saque FGTS"},
+                        {"id": "mod_siape",      "title": "SIAPE"},
+                        {"id": "mod_prefeitura", "title": "Servidor Prefeitura"},
+                        {"id": "mod_bolsa",      "title": "Bolsa Família"},
+                        {"id": "mod_solar",      "title": "Placa Solar"},
+                    ],
+                }],
+            },
+        },
+    }
     return requests.post(url, headers=headers, json=body)
 
 class ClienteModel(BaseModel):
@@ -268,7 +294,6 @@ def enviar_whatsapp(dados: EnvioWhatsApp):
     try:
         resp = enviar_texto_whatsapp(dados.numero, dados.texto)
         resultado = resp.json()
-        print("📤 ENVIO WHATSAPP:", resultado)
         if resp.ok:
             cliente_id, _ = buscar_ou_criar_cliente(dados.numero)
             adicionar_mensagem(cliente_id, "atendente", dados.texto)
@@ -358,7 +383,6 @@ async def receber_webhook(payload: dict):
                     url = f"https://graph.facebook.com/v25.0/{lead_id}"
                     resp = requests.get(url, params={"access_token": CRM_TOKEN})
                     lead_data = resp.json()
-                    print("📦 FORM META:", lead_data)
                     nome = telefone = email = cpf = ""
                     for campo in lead_data.get("field_data", []):
                         n = campo.get("name", "").lower()
@@ -381,6 +405,25 @@ async def receber_webhook(payload: dict):
                         numero = msg.get("from", "") or wa_numero
                         tipo = msg.get("type", "")
                         cliente_id, novo = buscar_ou_criar_cliente(numero, nome_contato)
+
+                        if tipo == "interactive":
+                            interativo = msg.get("interactive", {})
+                            escolha = ""
+                            if interativo.get("type") == "list_reply":
+                                escolha = interativo.get("list_reply", {}).get("title", "")
+                            elif interativo.get("type") == "button_reply":
+                                escolha = interativo.get("button_reply", {}).get("title", "")
+                            if escolha and WHATSAPP_TOKEN:
+                                adicionar_mensagem(cliente_id, "cliente", f"Modalidade escolhida: {escolha}")
+                                try:
+                                    atualizar_cliente_campos(cliente_id, {"modalidade": escolha, "status": "Em Atendimento"})
+                                except Exception as e:
+                                    print("erro modalidade:", e)
+                                confirma = f"Perfeito! ✅ Você escolheu *{escolha}*. Um consultor já vai te atender. 😊"
+                                enviar_texto_whatsapp(numero, confirma)
+                                adicionar_mensagem(cliente_id, "atendente", confirma)
+                            continue
+
                         if tipo == "text":
                             texto = msg.get("text", {}).get("body", "")
                             adicionar_mensagem(cliente_id, "cliente", texto)
@@ -393,15 +436,13 @@ async def receber_webhook(payload: dict):
                         else:
                             adicionar_mensagem(cliente_id, "cliente", f"[mensagem do tipo {tipo}]")
 
-                        # 🤖 Robô de boas-vindas: responde automático no PRIMEIRO contato
+                        # 🤖 Primeiro contato: manda o menu de modalidades
                         if novo and WHATSAPP_TOKEN:
                             try:
-                                enviar_texto_whatsapp(numero, MENSAGEM_AUTO)
-                                adicionar_mensagem(cliente_id, "atendente", MENSAGEM_AUTO)
+                                enviar_menu_modalidades(numero)
+                                adicionar_mensagem(cliente_id, "atendente", "🤖 Menu de modalidades enviado")
                             except Exception as e:
-                                print("❌ Erro auto-resposta:", e)
-
-                        print(f"📱 WHATSAPP de {numero}: tipo={tipo} novo={novo}")
+                                print("❌ Erro menu:", e)
 
             for msg_event in entry.get("messaging", []):
                 sender_id = msg_event.get("sender", {}).get("id", "")
