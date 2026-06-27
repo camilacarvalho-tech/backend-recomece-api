@@ -1,4 +1,4 @@
-﻿from fastapi import FastAPI, Query, UploadFile, File, Form
+from fastapi import FastAPI, Query, UploadFile, File, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import PlainTextResponse, Response
 from pydantic import BaseModel
@@ -9,7 +9,7 @@ import json
 import time
 
 import firebase_admin
-from firebase_admin import credentials, firestore
+from firebase_admin import credentials, firestore, auth as fb_auth
 
 from database import engine, SessionLocal, Base
 from models import Simulacao, Mensagem
@@ -396,6 +396,41 @@ def disparar_remarketing(dados: DisparoRemarketing):
             falhas.append({"numero": num, "erro": str(e)})
         time.sleep(0.3)
     return {"ok": True, "enviados": enviados, "total": len(dados.alvos), "falhas": falhas}
+
+
+class CriarUsuario(BaseModel):
+    idToken: str
+    email: str
+    senha: str
+    empresaId: str
+    nome: str = ""
+    role: str = "funcionario"
+
+@app.post("/criar-usuario")
+def criar_usuario(dados: CriarUsuario):
+    try:
+        decoded = fb_auth.verify_id_token(dados.idToken)
+        caller_uid = decoded.get("uid")
+        db_fire = firestore.client()
+        caller = db_fire.collection("usuarios").document(caller_uid).get()
+        caller_data = caller.to_dict() if caller.exists else None
+        is_super = (caller_data is None) or (caller_data.get("role") == "superadmin")
+        if not is_super:
+            return {"ok": False, "erro": "Sem permissao"}
+    except Exception as e:
+        return {"ok": False, "erro": "Token invalido: " + str(e)}
+    try:
+        novo_user = fb_auth.create_user(email=dados.email.strip(), password=dados.senha, display_name=(dados.nome or dados.email))
+        firestore.client().collection("usuarios").document(novo_user.uid).set({
+            "nome": dados.nome or dados.email,
+            "email": dados.email.strip(),
+            "empresaId": dados.empresaId,
+            "role": dados.role,
+            "criadoEm": firestore.SERVER_TIMESTAMP,
+        })
+        return {"ok": True, "uid": novo_user.uid}
+    except Exception as e:
+        return {"ok": False, "erro": str(e)}
 
 # =========================
 # WEBHOOK META
