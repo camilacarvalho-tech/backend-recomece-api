@@ -120,12 +120,30 @@ def aviso_fora_horario(cliente_id, numero):
     db_fire = firestore.client()
     doc = db_fire.collection("clientes").document(cliente_id).get()
     d = doc.to_dict() or {}
+    if d.get("responsavel"):
+        return
     if d.get("avisoForaEnviado"):
         return
     msg = "Recebi os seus dados, obrigada! Sou a Letícia, da Recomece Cred. No momento estamos fora do horário de atendimento, mas já registrei tudo por aqui. Um consultor vai analisar e te retornar no próximo dia útil. Qualquer coisa é só me chamar!"
     enviar_texto_whatsapp(numero, msg)
     adicionar_mensagem(cliente_id, "atendente", msg)
     db_fire.collection("clientes").document(cliente_id).update({"avisoForaEnviado": True})
+def deve_saudar(cliente_id, novo):
+    try:
+        d = firestore.client().collection("clientes").document(cliente_id).get().to_dict() or {}
+    except Exception:
+        d = {}
+    if d.get("responsavel"):
+        return False
+    if novo:
+        return True
+    import time as _t
+    ts = d.get("ultimaAtualizacao")
+    try:
+        sec = ts.timestamp() if ts else 0
+    except Exception:
+        sec = 0
+    return (_t.time() - sec) > 6 * 3600
 
 # =========================
 # APP
@@ -438,6 +456,8 @@ def robo_inatividade():
         d = doc.to_dict() or {}
         if d.get("status", "") not in ativos:
             continue
+        if d.get("responsavel"):
+            continue
         numero = d.get("whatsapp") or d.get("telefone") or ""
         if not numero:
             continue
@@ -624,6 +644,7 @@ async def receber_webhook(payload: dict):
                         numero = msg.get("from", "") or wa_numero
                         tipo = msg.get("type", "")
                         cliente_id, novo = buscar_ou_criar_cliente(numero, nome_contato)
+                        saudar = deve_saudar(cliente_id, novo)
 
                         if tipo == "interactive":
                             interativo = msg.get("interactive", {})
@@ -661,7 +682,7 @@ async def receber_webhook(payload: dict):
                         else:
                             adicionar_mensagem(cliente_id, "cliente", f"[mensagem do tipo {tipo}]")
 
-                        if novo and WHATSAPP_TOKEN:
+                        if saudar and WHATSAPP_TOKEN:
                             try:
                                 enviar_menu_modalidades(numero)
                                 adicionar_mensagem(cliente_id, "atendente", "🤖 Menu de modalidades enviado")
