@@ -88,6 +88,8 @@ def adicionar_mensagem(cliente_id: str, autor: str, texto: str):
     db_fire.collection("clientes").document(cliente_id).update({
         "ultimaMensagem": texto, "ultimaAtualizacao": firestore.SERVER_TIMESTAMP, "ultimoAutor": autor,
     })
+    if autor == "cliente":
+        firestore.client().collection("clientes").document(cliente_id).update({"naoLidas": firestore.Increment(1)})
 
 def adicionar_mensagem_midia(cliente_id: str, autor: str, tipo: str, media_id: str, legenda: str = ""):
     db_fire = firestore.client()
@@ -97,6 +99,8 @@ def adicionar_mensagem_midia(cliente_id: str, autor: str, tipo: str, media_id: s
     db_fire.collection("clientes").document(cliente_id).update({
         "ultimaMensagem": f"[{tipo}]", "ultimaAtualizacao": firestore.SERVER_TIMESTAMP, "ultimoAutor": autor,
     })
+    if autor == "cliente":
+        firestore.client().collection("clientes").document(cliente_id).update({"naoLidas": firestore.Increment(1)})
 
 def atualizar_cliente_campos(cliente_id: str, campos: dict):
     firestore.client().collection("clientes").document(cliente_id).update(campos)
