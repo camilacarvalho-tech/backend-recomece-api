@@ -179,7 +179,7 @@ def enviar_menu_modalidades(numero: str):
         "interactive": {
             "type": "list",
             "header": {"type": "text", "text": "Recomece Cred"},
-            "body": {"text": "Olá! Eu sou a Letícia, assistente virtual da Recomece Cred. Escolha a modalidade que você deseja e já te encaminho para um consultor:"},
+            "body": {"text": f"Olá! {saudacao_tempo().capitalize()}! Tudo bem? Eu sou a Letícia, da Recomece Cred. Escolha a modalidade que você procura e já te encaminho para um consultor:"},
             "footer": {"text": "Toque em Ver opções"},
             "action": {
                 "button": "Ver opções",
@@ -690,9 +690,6 @@ async def receber_webhook(payload: dict):
 
                         if saudar and WHATSAPP_TOKEN:
                             try:
-                                saud = "Olá! " + saudacao_tempo().capitalize() + ", tudo bem? Eu sou a Letícia, da Recomece Cred, e vou te ajudar a dar andamento. Escolha a modalidade que você procura:"
-                                enviar_texto_whatsapp(numero, saud)
-                                adicionar_mensagem(cliente_id, "robo", saud)
                                 enviar_menu_modalidades(numero)
                                 adicionar_mensagem(cliente_id, "robo", "Menu de modalidades enviado")
                                 atualizar_cliente_campos(cliente_id, {"roboSaudouEm": int(time.time())})
