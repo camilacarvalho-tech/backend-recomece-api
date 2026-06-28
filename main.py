@@ -473,6 +473,7 @@ def disparar_remarketing(dados: DisparoRemarketing):
     return {"ok": True, "enviados": enviados, "total": len(dados.alvos), "falhas": falhas}
 
 
+@app.get("/robo-inatividade")
 @app.post("/robo-inatividade")
 def robo_inatividade():
     import time as _t
