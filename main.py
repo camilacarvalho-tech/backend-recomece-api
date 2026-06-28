@@ -171,7 +171,7 @@ def responder_dados(cliente_id, numero):
     ultimo = d.get("aguardeEm", 0) or 0
     if (_t.time() - ultimo) < 120:
         return
-    msg2 = "Pode aguardar mais um pouquinho? Em instantes um de nossos atendentes vai te responder. Obrigada pela paciencia!"
+    msg2 = "Só aguardar! Em instantes um atendente vai lhe retornar."
     enviar_texto_whatsapp(numero, msg2)
     adicionar_mensagem(cliente_id, "robo", msg2)
     db_fire.collection("clientes").document(cliente_id).update({"aguardeEm": int(_t.time())})
