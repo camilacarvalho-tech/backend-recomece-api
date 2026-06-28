@@ -150,6 +150,23 @@ def saudacao_tempo():
     if h < 18:
         return "boa tarde"
     return "boa noite"
+def responder_dados(cliente_id, numero):
+    db_fire = firestore.client()
+    doc = db_fire.collection("clientes").document(cliente_id).get()
+    d = doc.to_dict() or {}
+    if d.get("responsavel"):
+        return
+    if not d.get("modalidade"):
+        return
+    if d.get("dadosRespondido"):
+        return
+    msg = "Certo! Recebi os seus dados, obrigada. Vamos analisar e uma atendente ja vai entrar em contato em instantes."
+    if fora_horario():
+        msg = msg + " Como estamos fora do horario agora, o retorno sera no proximo dia util."
+    msg = msg + "\n\nEnquanto isso, segue a gente no Instagram e salva o nosso contato para futuras consultas: https://www.instagram.com/recomececred.oficial/"
+    enviar_texto_whatsapp(numero, msg)
+    adicionar_mensagem(cliente_id, "robo", msg)
+    db_fire.collection("clientes").document(cliente_id).update({"dadosRespondido": True})
 
 # =========================
 # APP
@@ -677,8 +694,8 @@ async def receber_webhook(payload: dict):
                                 atualizar_cliente_campos(cliente_id, {"followupEnviado": False})
                             except Exception:
                                 pass
-                            if (not novo) and WHATSAPP_TOKEN and fora_horario():
-                                aviso_fora_horario(cliente_id, numero)
+                            if (not novo) and WHATSAPP_TOKEN:
+                                responder_dados(cliente_id, numero)
                         elif tipo in ("audio", "voice", "image", "video", "document", "sticker"):
                             media = msg.get(tipo, {}) or {}
                             media_id = media.get("id", "")
