@@ -151,6 +151,7 @@ def saudacao_tempo():
         return "boa tarde"
     return "boa noite"
 def responder_dados(cliente_id, numero):
+    import time as _t
     db_fire = firestore.client()
     doc = db_fire.collection("clientes").document(cliente_id).get()
     d = doc.to_dict() or {}
@@ -158,15 +159,22 @@ def responder_dados(cliente_id, numero):
         return
     if not d.get("modalidade"):
         return
-    if d.get("dadosRespondido"):
+    if not d.get("dadosRespondido"):
+        msg = "Certo! Recebi os seus dados, obrigada. Vamos analisar e uma atendente ja vai entrar em contato em instantes."
+        if fora_horario():
+            msg = msg + " Como estamos fora do horario agora, o retorno sera no proximo dia util."
+        msg = msg + "\n\nEnquanto isso, segue a gente no Instagram e salva o nosso contato para futuras consultas: https://www.instagram.com/recomececred.oficial/"
+        enviar_texto_whatsapp(numero, msg)
+        adicionar_mensagem(cliente_id, "robo", msg)
+        db_fire.collection("clientes").document(cliente_id).update({"dadosRespondido": True, "aguardeEm": int(_t.time())})
         return
-    msg = "Certo! Recebi os seus dados, obrigada. Vamos analisar e uma atendente ja vai entrar em contato em instantes."
-    if fora_horario():
-        msg = msg + " Como estamos fora do horario agora, o retorno sera no proximo dia util."
-    msg = msg + "\n\nEnquanto isso, segue a gente no Instagram e salva o nosso contato para futuras consultas: https://www.instagram.com/recomececred.oficial/"
-    enviar_texto_whatsapp(numero, msg)
-    adicionar_mensagem(cliente_id, "robo", msg)
-    db_fire.collection("clientes").document(cliente_id).update({"dadosRespondido": True})
+    ultimo = d.get("aguardeEm", 0) or 0
+    if (_t.time() - ultimo) < 120:
+        return
+    msg2 = "Pode aguardar mais um pouquinho? Em instantes um de nossos atendentes vai te responder. Obrigada pela paciencia!"
+    enviar_texto_whatsapp(numero, msg2)
+    adicionar_mensagem(cliente_id, "robo", msg2)
+    db_fire.collection("clientes").document(cliente_id).update({"aguardeEm": int(_t.time())})
 
 # =========================
 # APP
