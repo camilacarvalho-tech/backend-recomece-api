@@ -129,7 +129,7 @@ def enviar_menu_modalidades(numero: str):
         "interactive": {
             "type": "list",
             "header": {"type": "text", "text": "Recomece Cred"},
-            "body": {"text": "Olá! 👋 Seja bem-vindo(a)! Escolha a modalidade que você deseja que um consultor já vai te atender:"},
+            "body": {"text": "Olá! Eu sou a Letícia, assistente virtual da Recomece Cred. Escolha a modalidade que você deseja e já te encaminho para um consultor:"},
             "footer": {"text": "Toque em Ver opções"},
             "action": {
                 "button": "Ver opções",
@@ -498,7 +498,7 @@ async def receber_webhook(payload: dict):
                                     atualizar_cliente_campos(cliente_id, {"modalidade": escolha, "status": "Em Atendimento"})
                                 except Exception as e:
                                     print("erro modalidade:", e)
-                                confirma = f"Perfeito! ✅ Você escolheu *{escolha}*. Um consultor já vai te atender. 😊"
+                                confirma = f"Perfeito! Você escolheu *{escolha}*.\n\nPara adiantar o seu atendimento, me envie por favor:\n\n- Nome completo\n- Data de nascimento\n- CEP\n- CPF\n\nEm instantes um de nossos consultores vai te atender.\n\nLetícia - Recomece Cred"
                                 enviar_texto_whatsapp(numero, confirma)
                                 adicionar_mensagem(cliente_id, "atendente", confirma)
                             continue
