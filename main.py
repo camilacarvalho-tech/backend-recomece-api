@@ -126,7 +126,7 @@ def aviso_fora_horario(cliente_id, numero):
         return
     msg = "Recebi os seus dados, obrigada! Sou a Letícia, da Recomece Cred. No momento estamos fora do horário de atendimento, mas já registrei tudo por aqui. Um consultor vai analisar e te retornar no próximo dia útil. Qualquer coisa é só me chamar!"
     enviar_texto_whatsapp(numero, msg)
-    adicionar_mensagem(cliente_id, "atendente", msg)
+    adicionar_mensagem(cliente_id, "robo", msg)
     db_fire.collection("clientes").document(cliente_id).update({"avisoForaEnviado": True})
 def deve_saudar(cliente_id, novo):
     try:
@@ -471,7 +471,7 @@ def robo_inatividade():
         if (not d.get("followupEnviado")) and autor in ("atendente", "robo") and inativo > LIMITE_FOLLOWUP:
             msg = "Oi! Aqui é a Letícia da Recomece Cred. Vamos dar andamento ao seu atendimento ou prefere que a gente encerre por aqui? Se quiser continuar, é só me responder."
             enviar_texto_whatsapp(numero, msg)
-            adicionar_mensagem(doc.id, "atendente", msg)
+            adicionar_mensagem(doc.id, "robo", msg)
             db_fire.collection("clientes").document(doc.id).update({"followupEnviado": True, "followupEm": agora})
             feito_followup += 1
         elif d.get("followupEnviado") and autor in ("atendente", "robo"):
@@ -509,7 +509,7 @@ def robo_inatividade():
         if (not d.get("followupEnviado")) and autor in ("atendente", "robo") and inativo > LIMITE_FOLLOWUP:
             msg = "Oi! Aqui é a Letícia da Recomece Cred. Vamos dar andamento ao seu atendimento ou prefere que a gente encerre por aqui? Se quiser continuar, é só me responder."
             enviar_texto_whatsapp(numero, msg)
-            adicionar_mensagem(doc.id, "atendente", msg)
+            adicionar_mensagem(doc.id, "robo", msg)
             db_fire.collection("clientes").document(doc.id).update({"followupEnviado": True, "followupEm": agora})
             feito_followup += 1
         elif d.get("followupEnviado") and autor in ("atendente", "robo"):
@@ -547,7 +547,7 @@ def robo_inatividade():
         if (not d.get("followupEnviado")) and autor in ("atendente", "robo") and inativo > LIMITE_FOLLOWUP:
             msg = "Oi! Aqui é a Letícia da Recomece Cred. Vamos dar andamento ao seu atendimento ou prefere que a gente encerre por aqui? Se quiser continuar, é só me responder."
             enviar_texto_whatsapp(numero, msg)
-            adicionar_mensagem(doc.id, "atendente", msg)
+            adicionar_mensagem(doc.id, "robo", msg)
             db_fire.collection("clientes").document(doc.id).update({"followupEnviado": True, "followupEm": agora})
             feito_followup += 1
         elif d.get("followupEnviado") and autor in ("atendente", "robo"):
@@ -661,7 +661,7 @@ async def receber_webhook(payload: dict):
                                     print("erro modalidade:", e)
                                 confirma = f"Perfeito! Você escolheu *{escolha}*.\n\nPara adiantar o seu atendimento, me envie por favor:\n\n- Nome completo\n- Data de nascimento\n- CEP\n- CPF\n\nEm instantes um de nossos consultores vai te atender.\n\nLetícia - Recomece Cred"
                                 enviar_texto_whatsapp(numero, confirma)
-                                adicionar_mensagem(cliente_id, "atendente", confirma)
+                                adicionar_mensagem(cliente_id, "robo", confirma)
                             continue
 
                         if tipo == "text":
@@ -685,7 +685,7 @@ async def receber_webhook(payload: dict):
                         if saudar and WHATSAPP_TOKEN:
                             try:
                                 enviar_menu_modalidades(numero)
-                                adicionar_mensagem(cliente_id, "atendente", "🤖 Menu de modalidades enviado")
+                                adicionar_mensagem(cliente_id, "robo", "🤖 Menu de modalidades enviado")
                             except Exception as e:
                                 print("❌ Erro menu:", e)
 
