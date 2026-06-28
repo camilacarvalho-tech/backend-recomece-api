@@ -721,7 +721,7 @@ async def receber_webhook(payload: dict):
                         if saudar and WHATSAPP_TOKEN:
                             try:
                                 enviar_menu_modalidades(numero)
-                                adicionar_mensagem(cliente_id, "robo", "Menu de modalidades enviado")
+                                adicionar_mensagem(cliente_id, "robo", "Menu enviado ao cliente com as modalidades: Conta de Energia, Crédito CLT, Refinanciamento Casa, Refinanciamento Carro, Saque FGTS, SIAPE, Servidor Prefeitura, Bolsa Família, Placa Solar")
                                 atualizar_cliente_campos(cliente_id, {"roboSaudouEm": int(time.time())})
                             except Exception as e:
                                 print("Erro menu:", e)
