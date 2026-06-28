@@ -101,6 +101,32 @@ def adicionar_mensagem_midia(cliente_id: str, autor: str, tipo: str, media_id: s
 def atualizar_cliente_campos(cliente_id: str, campos: dict):
     firestore.client().collection("clientes").document(cliente_id).update(campos)
 
+def fora_horario():
+    from datetime import datetime, timezone, timedelta
+    agora = datetime.now(timezone.utc) - timedelta(hours=3)
+    dia = agora.weekday()
+    minutos = agora.hour * 60 + agora.minute
+    abre = 8 * 60
+    if dia <= 4:
+        fecha = 19 * 60
+    elif dia == 5:
+        fecha = 17 * 60 + 30
+    else:
+        fecha = 13 * 60
+    if minutos < abre or minutos >= fecha:
+        return True
+    return False
+def aviso_fora_horario(cliente_id, numero):
+    db_fire = firestore.client()
+    doc = db_fire.collection("clientes").document(cliente_id).get()
+    d = doc.to_dict() or {}
+    if d.get("avisoForaEnviado"):
+        return
+    msg = "Recebi os seus dados, obrigada! Sou a Letícia, da Recomece Cred. No momento estamos fora do horário de atendimento, mas já registrei tudo por aqui. Um consultor vai analisar e te retornar no próximo dia útil. Qualquer coisa é só me chamar!"
+    enviar_texto_whatsapp(numero, msg)
+    adicionar_mensagem(cliente_id, "atendente", msg)
+    db_fire.collection("clientes").document(cliente_id).update({"avisoForaEnviado": True})
+
 # =========================
 # APP
 # =========================
@@ -398,6 +424,120 @@ def disparar_remarketing(dados: DisparoRemarketing):
     return {"ok": True, "enviados": enviados, "total": len(dados.alvos), "falhas": falhas}
 
 
+@app.post("/robo-inatividade")
+def robo_inatividade():
+    import time as _t
+    db_fire = firestore.client()
+    agora = _t.time()
+    LIMITE_FOLLOWUP = 20 * 60
+    LIMITE_SEM_CONTATO = 60 * 60
+    ativos = ["Lead", "Em Atendimento"]
+    feito_followup = 0
+    feito_sem_contato = 0
+    for doc in db_fire.collection("clientes").stream():
+        d = doc.to_dict() or {}
+        if d.get("status", "") not in ativos:
+            continue
+        numero = d.get("whatsapp") or d.get("telefone") or ""
+        if not numero:
+            continue
+        autor = d.get("ultimoAutor", "")
+        ts = d.get("ultimaAtualizacao")
+        try:
+            sec = ts.timestamp() if ts else 0
+        except Exception:
+            sec = 0
+        inativo = agora - sec if sec else 0
+        if (not d.get("followupEnviado")) and autor in ("atendente", "robo") and inativo > LIMITE_FOLLOWUP:
+            msg = "Oi! Aqui é a Letícia da Recomece Cred. Vamos dar andamento ao seu atendimento ou prefere que a gente encerre por aqui? Se quiser continuar, é só me responder."
+            enviar_texto_whatsapp(numero, msg)
+            adicionar_mensagem(doc.id, "atendente", msg)
+            db_fire.collection("clientes").document(doc.id).update({"followupEnviado": True, "followupEm": agora})
+            feito_followup += 1
+        elif d.get("followupEnviado") and autor in ("atendente", "robo"):
+            fem = d.get("followupEm", 0) or 0
+            if fem and (agora - fem) > LIMITE_SEM_CONTATO:
+                db_fire.collection("clientes").document(doc.id).update({"status": "Sem Contato"})
+                feito_sem_contato += 1
+    return {"ok": True, "followup": feito_followup, "sem_contato": feito_sem_contato}
+
+
+@app.post("/robo-inatividade")
+def robo_inatividade():
+    import time as _t
+    db_fire = firestore.client()
+    agora = _t.time()
+    LIMITE_FOLLOWUP = 20 * 60
+    LIMITE_SEM_CONTATO = 60 * 60
+    ativos = ["Lead", "Em Atendimento"]
+    feito_followup = 0
+    feito_sem_contato = 0
+    for doc in db_fire.collection("clientes").stream():
+        d = doc.to_dict() or {}
+        if d.get("status", "") not in ativos:
+            continue
+        numero = d.get("whatsapp") or d.get("telefone") or ""
+        if not numero:
+            continue
+        autor = d.get("ultimoAutor", "")
+        ts = d.get("ultimaAtualizacao")
+        try:
+            sec = ts.timestamp() if ts else 0
+        except Exception:
+            sec = 0
+        inativo = agora - sec if sec else 0
+        if (not d.get("followupEnviado")) and autor in ("atendente", "robo") and inativo > LIMITE_FOLLOWUP:
+            msg = "Oi! Aqui é a Letícia da Recomece Cred. Vamos dar andamento ao seu atendimento ou prefere que a gente encerre por aqui? Se quiser continuar, é só me responder."
+            enviar_texto_whatsapp(numero, msg)
+            adicionar_mensagem(doc.id, "atendente", msg)
+            db_fire.collection("clientes").document(doc.id).update({"followupEnviado": True, "followupEm": agora})
+            feito_followup += 1
+        elif d.get("followupEnviado") and autor in ("atendente", "robo"):
+            fem = d.get("followupEm", 0) or 0
+            if fem and (agora - fem) > LIMITE_SEM_CONTATO:
+                db_fire.collection("clientes").document(doc.id).update({"status": "Sem Contato"})
+                feito_sem_contato += 1
+    return {"ok": True, "followup": feito_followup, "sem_contato": feito_sem_contato}
+
+
+@app.post("/robo-inatividade")
+def robo_inatividade():
+    import time as _t
+    db_fire = firestore.client()
+    agora = _t.time()
+    LIMITE_FOLLOWUP = 20 * 60
+    LIMITE_SEM_CONTATO = 60 * 60
+    ativos = ["Lead", "Em Atendimento"]
+    feito_followup = 0
+    feito_sem_contato = 0
+    for doc in db_fire.collection("clientes").stream():
+        d = doc.to_dict() or {}
+        if d.get("status", "") not in ativos:
+            continue
+        numero = d.get("whatsapp") or d.get("telefone") or ""
+        if not numero:
+            continue
+        autor = d.get("ultimoAutor", "")
+        ts = d.get("ultimaAtualizacao")
+        try:
+            sec = ts.timestamp() if ts else 0
+        except Exception:
+            sec = 0
+        inativo = agora - sec if sec else 0
+        if (not d.get("followupEnviado")) and autor in ("atendente", "robo") and inativo > LIMITE_FOLLOWUP:
+            msg = "Oi! Aqui é a Letícia da Recomece Cred. Vamos dar andamento ao seu atendimento ou prefere que a gente encerre por aqui? Se quiser continuar, é só me responder."
+            enviar_texto_whatsapp(numero, msg)
+            adicionar_mensagem(doc.id, "atendente", msg)
+            db_fire.collection("clientes").document(doc.id).update({"followupEnviado": True, "followupEm": agora})
+            feito_followup += 1
+        elif d.get("followupEnviado") and autor in ("atendente", "robo"):
+            fem = d.get("followupEm", 0) or 0
+            if fem and (agora - fem) > LIMITE_SEM_CONTATO:
+                db_fire.collection("clientes").document(doc.id).update({"status": "Sem Contato"})
+                feito_sem_contato += 1
+    return {"ok": True, "followup": feito_followup, "sem_contato": feito_sem_contato}
+
+
 class CriarUsuario(BaseModel):
     idToken: str
     email: str
@@ -506,6 +646,12 @@ async def receber_webhook(payload: dict):
                         if tipo == "text":
                             texto = msg.get("text", {}).get("body", "")
                             adicionar_mensagem(cliente_id, "cliente", texto)
+                            try:
+                                atualizar_cliente_campos(cliente_id, {"followupEnviado": False})
+                            except Exception:
+                                pass
+                            if (not novo) and WHATSAPP_TOKEN and fora_horario():
+                                aviso_fora_horario(cliente_id, numero)
                         elif tipo in ("audio", "voice", "image", "video", "document", "sticker"):
                             media = msg.get(tipo, {}) or {}
                             media_id = media.get("id", "")
