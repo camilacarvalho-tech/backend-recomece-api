@@ -122,6 +122,8 @@ def aviso_fora_horario(cliente_id, numero):
     d = doc.to_dict() or {}
     if d.get("responsavel"):
         return
+    if not d.get("modalidade"):
+        return
     if d.get("avisoForaEnviado"):
         return
     msg = "Recebi os seus dados, obrigada! Sou a Letícia, da Recomece Cred. No momento estamos fora do horário de atendimento, mas já registrei tudo por aqui. Um consultor vai analisar e te retornar no próximo dia útil. Qualquer coisa é só me chamar!"
@@ -129,21 +131,25 @@ def aviso_fora_horario(cliente_id, numero):
     adicionar_mensagem(cliente_id, "robo", msg)
     db_fire.collection("clientes").document(cliente_id).update({"avisoForaEnviado": True})
 def deve_saudar(cliente_id, novo):
+    import time as _t
     try:
         d = firestore.client().collection("clientes").document(cliente_id).get().to_dict() or {}
     except Exception:
         d = {}
     if d.get("responsavel"):
         return False
-    if novo:
-        return True
-    import time as _t
-    ts = d.get("ultimaAtualizacao")
-    try:
-        sec = ts.timestamp() if ts else 0
-    except Exception:
-        sec = 0
-    return (_t.time() - sec) > 6 * 3600
+    if d.get("modalidade"):
+        return False
+    ultimo = d.get("roboSaudouEm", 0) or 0
+    return (_t.time() - ultimo) > 60
+def saudacao_tempo():
+    from datetime import datetime, timezone, timedelta
+    h = (datetime.now(timezone.utc) - timedelta(hours=3)).hour
+    if h < 12:
+        return "bom dia"
+    if h < 18:
+        return "boa tarde"
+    return "boa noite"
 
 # =========================
 # APP
@@ -684,10 +690,14 @@ async def receber_webhook(payload: dict):
 
                         if saudar and WHATSAPP_TOKEN:
                             try:
+                                saud = "Olá! " + saudacao_tempo().capitalize() + ", tudo bem? Eu sou a Letícia, da Recomece Cred, e vou te ajudar a dar andamento. Escolha a modalidade que você procura:"
+                                enviar_texto_whatsapp(numero, saud)
+                                adicionar_mensagem(cliente_id, "robo", saud)
                                 enviar_menu_modalidades(numero)
-                                adicionar_mensagem(cliente_id, "robo", "🤖 Menu de modalidades enviado")
+                                adicionar_mensagem(cliente_id, "robo", "Menu de modalidades enviado")
+                                atualizar_cliente_campos(cliente_id, {"roboSaudouEm": int(time.time())})
                             except Exception as e:
-                                print("❌ Erro menu:", e)
+                                print("Erro menu:", e)
 
             for msg_event in entry.get("messaging", []):
                 sender_id = msg_event.get("sender", {}).get("id", "")
